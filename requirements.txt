@@ -1,0 +1,2 @@
+﻿requests~=2.32.3
+dynaconf~=3.2.6
