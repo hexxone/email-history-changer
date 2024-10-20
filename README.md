@@ -27,6 +27,10 @@ Take for example: <https://web.archive.org/>
 
 So this tool can be more used as a "cleanup" for old/unwanted names etc. in all of your repos.
 
+P.S.: You can also enable the setting `reject command line pushes which expose my email` in GitHub.
+
+This will reject pushed which contain and of your github-confirmed email addresses in the future.
+
 ## Many words of caution
 
 This is a purely "source-available" project. I.e.: I will not accept PRs, feature requests or bug reports.
