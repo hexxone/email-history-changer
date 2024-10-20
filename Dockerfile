@@ -11,7 +11,6 @@ RUN apt-get update \
 
 COPY main.py ./
 COPY config.py ./
-COPY git-filter-repo ./
 
 # Richte das Skript ein, um bei Container-Start ausgeführt zu werden
 CMD ["python", "./main.py"]
