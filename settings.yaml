@@ -1,13 +1,2 @@
 # required:
 github.username: hexxone
-github.commit_author: hexx.one
-github.commit_email: 5312542+hexxone@users.noreply.github.com
-
-# optional:
-# Sometimes, the git-filter-repo tool will ignore commits if they seem to come from other users.
-# E.g.: if you changed your GitHub user-name & url or they come from another device.
-github.old_emails:
-    - old@gmail.com
-    - old@googlemail.com
-    - old1@users.noreply.github.com
-    - old2@users.noreply.github.com
