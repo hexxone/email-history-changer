@@ -46,8 +46,7 @@ You are on your own.
 
 - read all of the above
 - know what you are doing
-- Python 3.1 or higher
-- packages `pip install -r requirements.txt`
+- Docker
 
 ## Usage
 
