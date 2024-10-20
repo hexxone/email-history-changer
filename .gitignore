@@ -1,0 +1,4 @@
+﻿*.git
+.idea
+# Ignore dynaconf secret files
+.secrets.*

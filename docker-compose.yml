@@ -1,0 +1,12 @@
+﻿name: email-history-changer
+
+services:
+    email-history-changer:
+        build: .
+        container_name: email-history-changer
+        hostname: email-history-changer
+        environment:
+            PYTHONUNBUFFERED: 1
+        volumes:
+            - ./settings.yaml:/app/settings.yaml
+            - ./.secrets.yaml:/app/.secrets.yaml
