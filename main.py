@@ -12,6 +12,7 @@ from config import settings
 time.sleep(1)
 print("Config loaded.")
 print("GitHub User: " + settings.github.username)
+print("Scrape User: " + settings.github.scrape_user)
 
 headers = {
     'Authorization': f'Bearer {settings.github.api_token}',
@@ -59,68 +60,86 @@ subproc = subprocess
 if platform.system() == 'Windows' or 'PRETEND_UNICODE_ARGS' in os.environ:
   subproc = SubprocessWrapper
 
-
 def get_repos():
-    url = f'https://api.github.com/users/{settings.github.username}/repos'
+    url = f'https://api.github.com/users/{settings.github.scrape_user}/repos'
+    headers = {'Authorization': f'token {settings.github.api_token}'}
     response = requests.get(url, headers=headers)
     if response.status_code < 200 or response.status_code > 299:
         print("GitHub sent bad status code; " + response.text)
         exit(-1)
 
     repos = response.json()
-    return [repo['clone_url'] for repo in repos]
+    repo_data = []
+    for repo in repos:
+        if repo['fork']:
+            # Fetch additional details about the parent repo
+            parent_details_url = f"https://api.github.com/repos/{repo['full_name']}/"
+            parent_response = requests.get(parent_details_url, headers=headers)
+            if parent_response.ok:
+                parent_repo_info = parent_response.json()
+                parent_clone_url = parent_repo_info['clone_url']
+            else:
+                parent_clone_url = None
+        else:
+            parent_clone_url = None
 
+        repo_data.append({
+            'clone_url': repo['clone_url'],
+            'is_fork': repo['fork'],
+            'parent_clone_url': parent_clone_url
+        })
+    return repo_data
 
-def get_infos(clone_url):
+def get_contributor_emails(clone_url):
     repo_name = clone_url.split('/')[-1].replace('.git', '')
     clone_url_with_token = clone_url.replace('https://', f'https://{settings.github.username}:{settings.github.api_token}@')
 
-    if not os.path.exists(f'{repo_name}.git'):
-        print(f"$: git clone {clone_url}")
-        subprocess.run(['git', 'clone', '--bare', clone_url_with_token, f'{repo_name}.git'])
+    if not os.path.exists(settings.github.scrape_user):
+        os.mkdir(settings.github.scrape_user)
 
-    print("$: git shortlog -e -s -n")
-    cmd = f'git -C {repo_name}.git shortlog -e -s -n HEAD'
+    if not os.path.exists(f'{settings.github.scrape_user}/{repo_name}.git'):
+        subprocess.run(['git', 'clone', '--bare', clone_url_with_token, f'{settings.github.scrape_user}/{repo_name}.git'])
+
+    cmd = f'git -C {settings.github.scrape_user}/{repo_name}.git shortlog -e -s -n HEAD'
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-    contributors = {}
+    emails = set()
 
     for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
         email = line.split('<')[-1].strip().strip('>')
-        name = " ".join(line.split()[1:-1])
+        emails.add(email)
 
-        if email not in contributors:
-            contributors[email] = set()
-
-        contributors[email].add(name)
-
-    # subprocess.run(['rm', '-rf', f'{repo_name}.git'])  # Clean up
-    return contributors
-
+    return emails
 
 def main():
     repos = get_repos()
     print(f'Found {len(repos)} repos.')
 
-    # Filter out specific repos
-    repos = [repo for repo in repos]
-
     contributors = {}
-    counter = 0
     with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = [executor.submit(get_infos, repo) for repo in repos]
+        futures = {}
+        for repo in repos:
+            if "three" not in repo['clone_url'] and "worker-loader" not in repo['clone_url']:
+                future = executor.submit(get_contributor_emails, repo['clone_url'])
+                futures[future] = repo
+
         for future in futures:
-            counter+=1
-            repo_contributors = future.result()
-            progress = "{:.9f}".format(100 / len(repos) * counter)
-            print(f"--- Overall Progress: {progress} %")
-            for email, names in repo_contributors.items():
+            emails = future.result()
+            repo = futures[future]
+            if repo['is_fork'] and repo['parent_clone_url']:
+                # Handle forked repository
+                parent_emails = get_contributor_emails(repo['parent_clone_url'])
+                unique_emails = emails - parent_emails
+            else:
+                unique_emails = emails
+
+            for email in unique_emails:
                 if email not in contributors:
                     contributors[email] = set()
-                contributors[email].update(names)
+                contributors[email].add(repo['clone_url'])
 
-    print("--- All Contributors ---")
-    for email, names in contributors.items():
-        print(f"{email}: {', '.join(names)}")
+    print("--- Unique Contributors (excluding parent repos) ---")
+    for email, repos in contributors.items():
+        print(f"{email}: contributed to {', '.join(repos)}")
 
 if __name__ == '__main__':
     main()
