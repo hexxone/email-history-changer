@@ -4,6 +4,9 @@ import platform
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
+from graphviz import Graph
+
+os.environ["PATH"] += os.pathsep + 'D:/Projekte/Coding/python/email-history-changer/Graphviz-12.1.2-win64/bin'
 
 # Build Tree
 # (github user)
@@ -74,9 +77,9 @@ def get_repos(user):
     url = f'https://api.github.com/users/{user}/repos'
     headers = {'Authorization': f'token {settings.github.api_token}'}
     response = requests.get(url, headers=headers)
-    if response.status_code < 200 or response.status_code > 299:
+    if response.status_code != 200:
         print("GitHub sent bad status code; " + response.text)
-        exit(-1)
+        return []
 
     repos = response.json()
     repo_data = []
@@ -94,68 +97,73 @@ def get_repos(user):
             parent_clone_url = None
 
         repo_data.append({
+            'name': f"{user}/{repo['name']}",  # Include the username with repo name for uniqueness
             'clone_url': repo['clone_url'],
             'is_fork': repo['fork'],
             'parent_clone_url': parent_clone_url
         })
     return repo_data
 
-
 def get_contributor_emails(clone_url):
-    # Extract the username from the clone_url
     github_username = clone_url.split('/')[3]
-
     repo_name = clone_url.split('/')[-1].replace('.git', '')
-    clone_url_with_token = clone_url.replace('https://',
-                                             f'https://{settings.github.username}:{settings.github.api_token}@')
+    local_repo_path = f'{github_username}/{repo_name}.git'
 
-    # Use the extracted github_username instead of settings.github.scrape_user
     if not os.path.exists(github_username):
-        os.mkdir(github_username)
+        os.makedirs(github_username, exist_ok=True)
 
-    if not os.path.exists(f'{github_username}/{repo_name}.git'):
-        subprocess.run(['git', 'clone', '--bare', clone_url_with_token, f'{github_username}/{repo_name}.git'])
+    if not os.path.exists(local_repo_path):
+        subprocess.run(['git', 'clone', '--bare', clone_url, local_repo_path])
 
-    cmd = f'git -C {github_username}/{repo_name}.git shortlog -e -s -n HEAD'
+    cmd = f'git -C {local_repo_path} shortlog -se HEAD'
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
     emails = set()
 
     for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
-        email = line.split('<')[-1].strip().strip('>')
+        email = line.split('<')[-1].strip('>\n')
         emails.add(email)
 
     return emails
 
+def visualize_network(contributors):
+    graph = Graph('GitHub Collaboration Network', filename='github_network.gv', engine='neato')
+    nodes = set()
+    for email, repos in contributors.items():
+        if email not in nodes:
+            graph.node(email, label=email)
+            nodes.add(email)
+        for repo in repos:
+            if repo not in nodes:
+                graph.node(repo, label=repo, shape='box')
+                nodes.add(repo)
+            graph.edge(email, repo)
+    graph.show('mygraph.html', view=True)
+
 def main():
-    repos = get_repos(settings.github.scrape_user)
+    user = settings.github.scrape_user
+    repos = get_repos(user)
     print(f'Found {len(repos)} repos.')
 
     contributors = {}
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {}
         for repo in repos:
-            if "three" not in repo['clone_url'] and "worker-loader" not in repo['clone_url']:
-                future = executor.submit(get_contributor_emails, repo['clone_url'])
-                futures[future] = repo
+            future = executor.submit(get_contributor_emails, repo['clone_url'])
+            futures[future] = repo
 
         for future in futures:
             emails = future.result()
-            repo = futures[future]
-            if repo['is_fork'] and repo['parent_clone_url']:
-                # Handle forked repository
-                parent_emails = get_contributor_emails(repo['parent_clone_url'])
-                unique_emails = emails - parent_emails
-            else:
-                unique_emails = emails
-
-            for email in unique_emails:
+            repo = futures[future]['name']
+            for email in emails:
                 if email not in contributors:
                     contributors[email] = set()
-                contributors[email].add(repo['clone_url'])
+                contributors[email].add(repo)
 
-    print("--- Unique Contributors (excluding parent repos) ---")
+    print("--- Unique Collaborations ---")
     for email, repos in contributors.items():
         print(f"{email}: contributed to {', '.join(repos)}")
+
+    visualize_network(contributors)
 
 if __name__ == '__main__':
     main()
