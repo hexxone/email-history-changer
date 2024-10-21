@@ -4,7 +4,7 @@ import platform
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
-from graphviz import Graph
+from pyvis.network import Network
 
 os.environ["PATH"] += os.pathsep + 'D:/Projekte/Coding/python/email-history-changer/Graphviz-12.1.2-win64/bin'
 
@@ -126,18 +126,58 @@ def get_contributor_emails(clone_url):
     return emails
 
 def visualize_network(contributors):
-    graph = Graph('GitHub Collaboration Network', filename='github_network.gv', engine='neato')
-    nodes = set()
+    net = Network('90vh', '100%', bgcolor="#222222", font_color="white", filter_menu=True)
+    net.barnes_hut()
     for email, repos in contributors.items():
-        if email not in nodes:
-            graph.node(email, label=email)
-            nodes.add(email)
+        net.add_node(email, label=email, title=email)
         for repo in repos:
-            if repo not in nodes:
-                graph.node(repo, label=repo, shape='box')
-                nodes.add(repo)
-            graph.edge(email, repo)
-    graph.show('mygraph.html', view=True)
+            net.add_node(repo, label=repo, title=repo, shape='box')
+            net.add_edge(email, repo)
+
+    net.toggle_physics(True)
+    # net.show_buttons(filter_=['physics'])
+    net.set_options("""
+const options = {
+  "nodes": {
+    "borderWidth": null,
+    "borderWidthSelected": null,
+    "font": {
+      "size": 40
+    },
+    "scaling": {
+      "min": 38,
+      "max": 80
+    },
+    "size": null
+  },
+  "edges": {
+    "color": {
+      "inherit": true
+    },
+    "font": {
+      "size": 48
+    },
+    "selfReferenceSize": null,
+    "selfReference": {
+      "angle": 0.7853981633974483
+    },
+    "smooth": {
+      "forceDirection": "none"
+    }
+  },
+  "physics": {
+    "barnesHut": {
+      "theta": 0.4,
+      "gravitationalConstant": -75000,
+      "centralGravity": 4.5,
+      "springLength": 250,
+      "springConstant": 0.001
+    },
+    "minVelocity": 0.75
+  }
+}
+""")
+    net.show("github_network.html", notebook=False)
 
 def main():
     user = settings.github.scrape_user
