@@ -1,3 +1,5 @@
 # required:
 github.username: hexxone
-github.scrape_user: viertel97
+
+github.scrape_users:
+    - hexxone
