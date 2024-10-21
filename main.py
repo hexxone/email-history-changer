@@ -25,7 +25,7 @@ from config import settings
 time.sleep(1)
 print("Config loaded.")
 print("GitHub User: " + settings.github.username)
-print("Scrape User: " + settings.github.scrape_user)
+print("Scrape Users: " + str(len(settings.github.scrape_users)))
 
 headers = {
     'Authorization': f'Bearer {settings.github.api_token}',
@@ -73,38 +73,41 @@ subproc = subprocess
 if platform.system() == 'Windows' or 'PRETEND_UNICODE_ARGS' in os.environ:
   subproc = SubprocessWrapper
 
+
 def get_repos(user):
     url = f'https://api.github.com/users/{user}/repos'
     headers = {'Authorization': f'token {settings.github.api_token}'}
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        print("GitHub sent bad status code; " + response.text)
-        return []
-
-    repos = response.json()
-    repo_data = []
-    for repo in repos:
-        if repo['fork']:
-            # Fetch additional details about the parent repo
-            parent_details_url = f"https://api.github.com/repos/{repo['full_name']}/"
-            parent_response = requests.get(parent_details_url, headers=headers)
-            if parent_response.ok:
-                parent_repo_info = parent_response.json()
-                parent_clone_url = parent_repo_info['clone_url']
+    repos = []
+    while url:
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            print(f"GitHub sent bad status code; {response.text}")
+            break
+        batch = response.json()
+        for repo in batch:
+            print("Processing: " + repo['full_name'])
+            repo_data = {
+                'name': f"{user}/{repo['name']}",
+                'clone_url': repo['clone_url'],
+                'is_fork': repo['fork']
+            }
+            if repo['fork']:
+                # Fetch additional details about the parent repo
+                parent_details_url = f"https://api.github.com/repos/{repo['full_name']}"
+                parent_response = requests.get(parent_details_url, headers=headers)
+                if parent_response.ok:
+                    parent_repo_info = parent_response.json()
+                    repo_data['parent_clone_url'] = parent_repo_info['clone_url']
+                else:
+                    repo_data['parent_clone_url'] = None
             else:
-                parent_clone_url = None
-        else:
-            parent_clone_url = None
-
-        repo_data.append({
-            'name': f"{user}/{repo['name']}",  # Include the username with repo name for uniqueness
-            'clone_url': repo['clone_url'],
-            'is_fork': repo['fork'],
-            'parent_clone_url': parent_clone_url
-        })
-    return repo_data
+                repo_data['parent_clone_url'] = None
+            repos.append(repo_data)
+        url = response.links.get('next', {}).get('url', None)
+    return repos
 
 def get_contributor_emails(clone_url):
+    print("Analyzing: " + clone_url)
     github_username = clone_url.split('/')[3]
     repo_name = clone_url.split('/')[-1].replace('.git', '')
     local_repo_path = f'{github_username}/{repo_name}.git'
@@ -115,24 +118,48 @@ def get_contributor_emails(clone_url):
     if not os.path.exists(local_repo_path):
         subprocess.run(['git', 'clone', '--bare', clone_url, local_repo_path])
 
-    cmd = f'git -C {local_repo_path} shortlog -se HEAD'
-    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
     emails = set()
+    try:
+        cmd = f'git -C {local_repo_path} shortlog -se HEAD'
+        output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=60)
 
-    for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
-        email = line.split('<')[-1].strip('>\n')
-        emails.add(email)
+        lines = output.decode('utf-8').split('\n')
+
+        for line in lines:
+            email = line.split('<')[-1].strip('>\n')
+            emails.add(email)
+    except subprocess.TimeoutExpired:
+        print("Analyzing timeout.")
 
     return emails
+
 
 def visualize_network(contributors):
     net = Network('90vh', '100%', bgcolor="#222222", font_color="white", filter_menu=True)
     net.barnes_hut()
+
+    connections = {}  # This will store the count of edges per node
     for email, repos in contributors.items():
-        net.add_node(email, label=email, title=email)
         for repo in repos:
-            net.add_node(repo, label=repo, title=repo, shape='box')
-            net.add_edge(email, repo)
+            if email in connections:
+                connections[email].add(repo)
+            else:
+                connections[email] = {repo}
+            if repo in connections:
+                connections[repo].add(email)
+            else:
+                connections[repo] = {email}
+
+    # Add nodes and edges based on connection count
+    for email, connected_nodes in connections.items():
+        if len(connected_nodes) >= 2:
+            net.add_node(email, label=email, title=email)
+    for repo, connected_nodes in connections.items():
+        net.add_node(repo, label=repo, title=repo, shape='box')
+    for email, repos in contributors.items():
+        for repo in repos:
+            if email in connections and len(connections[email]) >= 1:
+                net.add_edge(email, repo)
 
     net.toggle_physics(True)
     # net.show_buttons(filter_=['physics'])
@@ -180,29 +207,21 @@ const options = {
     net.show("github_network.html", notebook=False)
 
 def main():
-    user = settings.github.scrape_user
-    repos = get_repos(user)
-    print(f'Found {len(repos)} repos.')
+    users = settings.github.scrape_users
+
+    all_repos = sum([get_repos(u) for u in users], [])
+    print(f"Found {len(all_repos)} repos across all users.")
 
     contributors = {}
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {}
-        for repo in repos:
-            future = executor.submit(get_contributor_emails, repo['clone_url'])
-            futures[future] = repo
+    for repo in all_repos:
+        emails = get_contributor_emails(repo['clone_url'])
+        repo_name = repo['name']
+        for email in emails:
+            if email not in contributors:
+                contributors[email] = set()
+            contributors[email].add(repo_name)
 
-        for future in futures:
-            emails = future.result()
-            repo = futures[future]['name']
-            for email in emails:
-                if email not in contributors:
-                    contributors[email] = set()
-                contributors[email].add(repo)
-
-    print("--- Unique Collaborations ---")
-    for email, repos in contributors.items():
-        print(f"{email}: contributed to {', '.join(repos)}")
-
+    print("Visualizing... please wait")
     visualize_network(contributors)
 
 if __name__ == '__main__':
