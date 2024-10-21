@@ -5,6 +5,16 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+# Build Tree
+# (github user)
+# -> followers
+#   -> repos
+#     -> contributors
+# -> following
+#     -> contributors
+# -> repos
+#   -> contributors
+
 import requests
 
 from config import settings
@@ -60,8 +70,8 @@ subproc = subprocess
 if platform.system() == 'Windows' or 'PRETEND_UNICODE_ARGS' in os.environ:
   subproc = SubprocessWrapper
 
-def get_repos():
-    url = f'https://api.github.com/users/{settings.github.scrape_user}/repos'
+def get_repos(user):
+    url = f'https://api.github.com/users/{user}/repos'
     headers = {'Authorization': f'token {settings.github.api_token}'}
     response = requests.get(url, headers=headers)
     if response.status_code < 200 or response.status_code > 299:
@@ -90,17 +100,23 @@ def get_repos():
         })
     return repo_data
 
+
 def get_contributor_emails(clone_url):
+    # Extract the username from the clone_url
+    github_username = clone_url.split('/')[3]
+
     repo_name = clone_url.split('/')[-1].replace('.git', '')
-    clone_url_with_token = clone_url.replace('https://', f'https://{settings.github.username}:{settings.github.api_token}@')
+    clone_url_with_token = clone_url.replace('https://',
+                                             f'https://{settings.github.username}:{settings.github.api_token}@')
 
-    if not os.path.exists(settings.github.scrape_user):
-        os.mkdir(settings.github.scrape_user)
+    # Use the extracted github_username instead of settings.github.scrape_user
+    if not os.path.exists(github_username):
+        os.mkdir(github_username)
 
-    if not os.path.exists(f'{settings.github.scrape_user}/{repo_name}.git'):
-        subprocess.run(['git', 'clone', '--bare', clone_url_with_token, f'{settings.github.scrape_user}/{repo_name}.git'])
+    if not os.path.exists(f'{github_username}/{repo_name}.git'):
+        subprocess.run(['git', 'clone', '--bare', clone_url_with_token, f'{github_username}/{repo_name}.git'])
 
-    cmd = f'git -C {settings.github.scrape_user}/{repo_name}.git shortlog -e -s -n HEAD'
+    cmd = f'git -C {github_username}/{repo_name}.git shortlog -e -s -n HEAD'
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
     emails = set()
 
@@ -111,7 +127,7 @@ def get_contributor_emails(clone_url):
     return emails
 
 def main():
-    repos = get_repos()
+    repos = get_repos(settings.github.scrape_user)
     print(f'Found {len(repos)} repos.')
 
     contributors = {}
