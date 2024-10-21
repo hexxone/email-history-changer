@@ -3,6 +3,7 @@ import os
 import platform
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -67,58 +68,59 @@ def get_repos():
         exit(-1)
 
     repos = response.json()
-    return [repo['clone_url'] for repo in repos if repo["fork"] is False]
+    return [repo['clone_url'] for repo in repos]
 
 
-def get_infos(contributors, clone_url):
+def get_infos(clone_url):
     repo_name = clone_url.split('/')[-1].replace('.git', '')
-
-    # E.g.: https://github.com/user/repo.git -> https://user:MYTOKEN@github.com/user/repo.git
     clone_url_with_token = clone_url.replace('https://', f'https://{settings.github.username}:{settings.github.api_token}@')
 
-    print(f"$: git clone {clone_url}")
-    cloned = subprocess.run(['git', 'clone', '--bare', clone_url_with_token, f'{repo_name}.git'])
-
-    os.chdir(f'{repo_name}.git')
+    if not os.path.exists(f'{repo_name}.git'):
+        print(f"$: git clone {clone_url}")
+        subprocess.run(['git', 'clone', '--bare', clone_url_with_token, f'{repo_name}.git'])
 
     print("$: git shortlog -e -s -n")
-    cmd = ('git shortlog -e -s -n HEAD')
-    proc = subproc.Popen(cmd, shell=True, bufsize=-1, stdout=subprocess.PIPE)
+    cmd = f'git -C {repo_name}.git shortlog -e -s -n HEAD'
+    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+    contributors = {}
 
-    # Process each line to extract the email and name
     for line in io.TextIOWrapper(proc.stdout, encoding="utf-8"):
-        # Extract the email which is the last part inside <>
-        email = line.split('<')[-1].strip('>').strip()
-        # Extract the name which is between the commit count and the email
+        email = line.split('<')[-1].strip().strip('>')
         name = " ".join(line.split()[1:-1])
 
-        joined = name + " " + email
+        if email not in contributors:
+            contributors[email] = set()
 
-        # Add the tuple of name and email to the set
-        contributors.add(joined)
+        contributors[email].add(name)
 
-    os.chdir('..')
-
+    # subprocess.run(['rm', '-rf', f'{repo_name}.git'])  # Clean up
     return contributors
-
 
 
 def main():
     repos = get_repos()
-    print(f'Found {str(len(repos))} repos.')
-    contributors = set()
-    for repo in repos:
-        if "three" in repo:
-            continue
-        if "worker-loader" in repo:
-            continue
-        print(f'Getting infos from: {repo}')
-        get_infos(contributors, repo)
+    print(f'Found {len(repos)} repos.')
+
+    # Filter out specific repos
+    repos = [repo for repo in repos]
+
+    contributors = {}
+    counter = 0
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(get_infos, repo) for repo in repos]
+        for future in futures:
+            counter+=1
+            repo_contributors = future.result()
+            progress = "{:.9f}".format(100 / len(repos) * counter)
+            print(f"--- Overall Progress: {progress} %")
+            for email, names in repo_contributors.items():
+                if email not in contributors:
+                    contributors[email] = set()
+                contributors[email].update(names)
 
     print("--- All Contributors ---")
-    # Print all unique contributors
-    for user in contributors:
-        print(f"{user}")
+    for email, names in contributors.items():
+        print(f"{email}: {', '.join(names)}")
 
 if __name__ == '__main__':
     main()
