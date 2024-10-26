@@ -1,9 +1,6 @@
-﻿import io
-import os
-import platform
+﻿import os
 import subprocess
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pyvis.network import Network
 
 os.environ["PATH"] += os.pathsep + 'D:/Projekte/Coding/python/email-history-changer/Graphviz-12.1.2-win64/bin'
@@ -31,48 +28,6 @@ headers = {
     'Authorization': f'Bearer {settings.github.api_token}',
     'Accept': 'application/vnd.github.v3+json'
 }
-
-def decode(bytestr):
-  'Try to convert bytestr to utf-8 for outputting as an error message.'
-  return bytestr.decode('utf-8', 'backslashreplace')
-
-class SubprocessWrapper(object):
-  @staticmethod
-  def decodify(args):
-    if type(args) == str:
-      return args
-    else:
-      assert type(args) == list
-      return [decode(x) if type(x)==bytes else x for x in args]
-
-  @staticmethod
-  def call(*args, **kwargs):
-    if 'cwd' in kwargs:
-      kwargs['cwd'] = decode(kwargs['cwd'])
-    return subprocess.call(SubprocessWrapper.decodify(*args), **kwargs)
-
-  @staticmethod
-  def check_output(*args, **kwargs):
-    if 'cwd' in kwargs:
-      kwargs['cwd'] = decode(kwargs['cwd'])
-    return subprocess.check_output(SubprocessWrapper.decodify(*args), **kwargs)
-
-  @staticmethod
-  def check_call(*args, **kwargs): # pragma: no cover  # used by filter-lamely
-    if 'cwd' in kwargs:
-      kwargs['cwd'] = decode(kwargs['cwd'])
-    return subprocess.check_call(SubprocessWrapper.decodify(*args), **kwargs)
-
-  @staticmethod
-  def Popen(*args, **kwargs):
-    if 'cwd' in kwargs:
-      kwargs['cwd'] = decode(kwargs['cwd'])
-    return subprocess.Popen(SubprocessWrapper.decodify(*args), **kwargs)
-
-subproc = subprocess
-if platform.system() == 'Windows' or 'PRETEND_UNICODE_ARGS' in os.environ:
-  subproc = SubprocessWrapper
-
 
 def get_repos(user):
     url = f'https://api.github.com/users/{user}/repos'
@@ -120,14 +75,20 @@ def get_contributor_emails(clone_url):
 
     emails = set()
     try:
-        cmd = f'git -C {local_repo_path} shortlog -se HEAD'
-        output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, timeout=60)
+        # Check if the repository has any logs
+        logs_exist = subprocess.run(['git', 'log', '-1'], cwd=local_repo_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        lines = output.decode('utf-8').split('\n')
+        if logs_exist.returncode == 0:
+            output = subprocess.check_output('git shortlog -se HEAD', cwd=local_repo_path, stderr=subprocess.STDOUT, timeout=60)
 
-        for line in lines:
-            email = line.split('<')[-1].strip('>\n')
-            emails.add(email)
+            lines = output.decode('utf-8').split('\n')
+
+            for line in lines:
+                email = line.split('<')[-1].strip('>\n')
+                emails.add(email)
+    except subprocess.CalledProcessError:
+        # Handle the case where the repository is empty or not initialized
+        return "No commits available in the repository."
     except subprocess.TimeoutExpired:
         print("Analyzing timeout.")
 
