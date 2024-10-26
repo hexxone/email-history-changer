@@ -17,7 +17,6 @@ headers = {
 
 def get_repos(user):
     url = f'https://api.github.com/users/{user}/repos'
-    headers = {'Authorization': f'token {settings.github.api_token}'}
     repos = []
     while url:
         response = requests.get(url, headers=headers)
@@ -26,7 +25,7 @@ def get_repos(user):
             break
         batch = response.json()
         for repo in batch:
-            repos.append((user, repo['clone_url'], repo['name']))  # Include repo name for clearer identification
+            repos.append((user, repo['clone_url'], repo['name']))
         url = response.links.get('next', {}).get('url', None)
     return repos
 
@@ -50,7 +49,8 @@ def get_contributor_emails(clone_url):
             lines = output.decode('utf-8').split('\n')
             for line in lines:
                 email = line.split('<')[-1].strip('>\n')
-                emails.add(email)
+                if email:  # Ensure the email string is not empty
+                    emails.add(email)
     except subprocess.CalledProcessError:
         return "No commits available in the repository."
     except subprocess.TimeoutExpired:
@@ -59,32 +59,37 @@ def get_contributor_emails(clone_url):
     return emails
 
 def visualize_network(user_repo_map, repo_contributors):
-
     net = Network('90vh', '100%', filter_menu=True)
     net.barnes_hut()
 
-    added_nodes = set()  # To track added nodes
+    added_nodes = set()
+    email_repo_count = {}
 
     for user, repos in user_repo_map.items():
-        user_node_id = f"user_{user}"  # Unique node id for users
+        user_node_id = f"user_{user}"
         if user_node_id not in added_nodes:
             net.add_node(user_node_id, label=user, title=user, shape="box", color="lightgreen")
             added_nodes.add(user_node_id)
         for repo in repos:
-            repo_name = repo[2]  # Use the repository name for labeling
-            repo_node_id = repo[1]  # Use the clone URL as unique ID
+            repo_node_id = repo[1]
             if repo_node_id not in added_nodes:
-                net.add_node(repo_node_id, label=repo_name, title=repo_name, shape="box", color="lightblue")
+                net.add_node(repo_node_id, label=repo[2], title=repo[2], shape="box", color="lightblue")
                 added_nodes.add(repo_node_id)
             net.add_edge(user_node_id, repo_node_id)
 
-            # Add contributors as edges to the repo
             if repo_node_id in repo_contributors:
                 for email in repo_contributors[repo_node_id]:
-                    if email not in added_nodes:
-                        net.add_node(email, label=email, title=email)
-                        added_nodes.add(email)
-                    net.add_edge(email, repo_node_id)
+                    if email not in email_repo_count:
+                        email_repo_count[email] = set()
+                    email_repo_count[email].add(repo_node_id)
+
+    for email, repos in email_repo_count.items():
+        if len(repos) >= 2:  # Only add email if linked to at least two repos
+            if email not in added_nodes:
+                net.add_node(email, label=email, title=email)
+                added_nodes.add(email)
+            for repo in repos:
+                net.add_edge(email, repo)
 
     net.toggle_physics(True)
     # net.show_buttons(filter_=['physics'])
@@ -139,16 +144,12 @@ def main():
     repo_contributors = {}
     for user in users:
         user_repos = get_repos(user)
-        if user not in user_repo_map:
-            user_repo_map[user] = []
-        for user, clone_url, repo_name in user_repos:
-            user_repo_map[user].append((user, clone_url, repo_name))
-            # Collect contributors for each repo
+        user_repo_map[user] = user_repos
+        for _, clone_url, _ in user_repos:
             contributors = get_contributor_emails(clone_url)
             if clone_url not in repo_contributors:
                 repo_contributors[clone_url] = set()
-            for email in contributors:
-                repo_contributors[clone_url].add(email)
+            repo_contributors[clone_url].update(contributors)
 
     print("Visualizing... please wait")
     visualize_network(user_repo_map, repo_contributors)
