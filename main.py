@@ -1,23 +1,11 @@
 ﻿import os
 import subprocess
 import time
-from pyvis.network import Network
-
-os.environ["PATH"] += os.pathsep + 'D:/Projekte/Coding/python/email-history-changer/Graphviz-12.1.2-win64/bin'
-
-# Build Tree
-# (github user)
-# -> followers
-#   -> repos
-#     -> contributors
-# -> following
-#     -> contributors
-# -> repos
-#   -> contributors
-
 import requests
-
+from pyvis.network import Network
 from config import settings
+
+filter_repo_count = 1
 
 time.sleep(1)
 print("Config loaded.")
@@ -47,14 +35,9 @@ def get_repos(user):
                 'is_fork': repo['fork']
             }
             if repo['fork']:
-                # Fetch additional details about the parent repo
                 parent_details_url = f"https://api.github.com/repos/{repo['full_name']}"
                 parent_response = requests.get(parent_details_url, headers=headers)
-                if parent_response.ok:
-                    parent_repo_info = parent_response.json()
-                    repo_data['parent_clone_url'] = parent_repo_info['clone_url']
-                else:
-                    repo_data['parent_clone_url'] = None
+                repo_data['parent_clone_url'] = parent_response.json()['clone_url'] if parent_response.ok else None
             else:
                 repo_data['parent_clone_url'] = None
             repos.append(repo_data)
@@ -75,52 +58,54 @@ def get_contributor_emails(clone_url):
 
     emails = set()
     try:
-        # Check if the repository has any logs
         logs_exist = subprocess.run(['git', 'log', '-1'], cwd=local_repo_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
         if logs_exist.returncode == 0:
             output = subprocess.check_output('git shortlog -se HEAD', cwd=local_repo_path, stderr=subprocess.STDOUT, timeout=60)
-
             lines = output.decode('utf-8').split('\n')
-
             for line in lines:
                 email = line.split('<')[-1].strip('>\n')
                 emails.add(email)
     except subprocess.CalledProcessError:
-        # Handle the case where the repository is empty or not initialized
         return "No commits available in the repository."
     except subprocess.TimeoutExpired:
         print("Analyzing timeout.")
 
     return emails
 
-
 def visualize_network(contributors):
-    net = Network('90vh', '100%', bgcolor="#222222", font_color="white", filter_menu=True)
+    global filter_repo_count
+
+    net = Network('90vh', '100%', filter_menu=True)
     net.barnes_hut()
 
-    connections = {}  # This will store the count of edges per node
+    connections = {}
     for email, repos in contributors.items():
-        for repo in repos:
-            if email in connections:
+        if len(repos) > filter_repo_count:  # Filter to include only contributors with more than one repo
+            if email not in connections:
+                connections[email] = set()
+            for repo in repos:
                 connections[email].add(repo)
-            else:
-                connections[email] = {repo}
-            if repo in connections:
-                connections[repo].add(email)
-            else:
-                connections[repo] = {email}
+                if repo in connections:
+                    connections[repo].add(email)
+                else:
+                    connections[repo] = {email}
 
-    # Add nodes and edges based on connection count
+    node_counter = 0
+    node_map = {}
+
     for email, connected_nodes in connections.items():
-        if len(connected_nodes) >= 2:
-            net.add_node(email, label=email, title=email)
+        node_counter = node_counter + 1
+        node_map[email] = "n" + str(node_counter)
+        net.add_node(node_map[email], label=email, title=email)
     for repo, connected_nodes in connections.items():
-        net.add_node(repo, label=repo, title=repo, shape='box')
+        node_counter = node_counter + 1
+        node_map[repo] = "n" + str(node_counter)
+        net.add_node(node_map[repo], label=repo, title=repo, shape='box', color="lightblue")
     for email, repos in contributors.items():
-        for repo in repos:
-            if email in connections and len(connections[email]) >= 1:
-                net.add_edge(email, repo)
+        if email in connections:
+            for repo in repos:
+                if repo in connections:
+                    net.add_edge(node_map[email], node_map[repo])
 
     net.toggle_physics(True)
     # net.show_buttons(filter_=['physics'])
@@ -165,11 +150,10 @@ const options = {
   }
 }
 """)
-    net.show("github_network.html", notebook=False)
+    net.show("github_network_test.html", notebook=False)
 
 def main():
     users = settings.github.scrape_users
-
     all_repos = sum([get_repos(u) for u in users], [])
     print(f"Found {len(all_repos)} repos across all users.")
 
