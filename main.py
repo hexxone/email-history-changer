@@ -88,6 +88,7 @@ def visualize_network(user_repo_map, repo_contributors):
             if email not in added_nodes:
                 net.add_node(email, label=email, title=email)
                 added_nodes.add(email)
+                print("Unique Email: " + email)
             for repo in repos:
                 net.add_edge(email, repo)
 
