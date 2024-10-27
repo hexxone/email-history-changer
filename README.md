@@ -31,11 +31,11 @@ P.S.: You can also enable the setting `reject command line pushes which expose m
 
 This will reject pushed which contain and of your github-confirmed email addresses in the future.
 
-## Many words of caution
+## Words of caution 💣⚠
 
-This is a purely "source-available" project. I.e.: I will not accept PRs, feature requests or bug reports.
-
-You are on your own.
+> This is a purely "source-available" project. I.e.: I will not accept PRs, feature requests or bug reports.
+>
+> You are on your own.
 
 1. I do not accept any responsibility for damages caused by this tool!
 2. Timetravel has not been invented yet! Make backups of everything before starting!
@@ -44,7 +44,10 @@ You are on your own.
 5. If you made a PR to some other repo with a wrong email - you are out of luck. The repo owner would have to merge you modified history.
 6. ALL FORKED Repos will also get out of sync and cannot easily be merged.
 7. If you work in a team, inform your collaborators about these changes, they will need to re-clone the repository after the modification.
-8. make sure to globally set your correct git config email & username from now on.
+8. If your repository is used as submodule, the references to certain commits will break and need to be updated manually.
+9. make sure to globally set your correct git config email & username from now on.
+
+> Also read: how git-filter-repo works: <https://github.com/newren/git-filter-repo?tab=readme-ov-file#how-do-i-use-it>
 
 ## Prerequisites
 
@@ -58,4 +61,4 @@ You are on your own.
   - copy `example.secrets.yaml` to `.secrets.yaml` and add your new token
 - modify `settings.yaml`
   - your dedicated github-no-reply email address can be found on your profile settings
-- run it with `docker compose up -d`
+- run it with `docker compose up`
