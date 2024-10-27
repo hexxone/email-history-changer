@@ -1,8 +1,10 @@
-﻿# email-history-changer
+﻿# email-history-changer (grab)
 
-This tool is designed to help you automatically remove or replace old email addresses from your entire commit history 
-across multiple GitHub repositories.
-It's built with privacy and ease of use in mind, enabling you to update commit metadata across all your projects efficiently.
+This branch contains a tool for visualizing GitHub users, 
+their repositories and related commit-emails and on which projects they collaborated.
+
+It can also be used to determine which emails have been (unwanted) exposed by a user, 
+so that it can be fixed with the email-history-changer (main branch).
 
 ## About
 
@@ -21,41 +23,14 @@ Subject: [PATCH] Initial commit
 ...
 ```
 
-Once it has been on the internet, you should generally assume that the information cannot be deleted.
-It has probably already been duplicated by someone or something, somewhere.
-Take for example: <https://web.archive.org/>
-
-So this tool can be more used as a "cleanup" for old/unwanted names etc. in all of your repos.
-
-P.S.: You can also enable the setting `reject command line pushes which expose my email` in GitHub.
-
-This will reject pushed which contain and of your github-confirmed email addresses in the future.
-
-## Many words of caution
-
-This is a purely "source-available" project. I.e.: I will not accept PRs, feature requests or bug reports.
-
-You are on your own.
-
-1. I do not accept any responsibility for damages caused by this tool!
-2. Timetravel has not been invented yet! Make backups of everything before starting!
-3. The tool cannot modify "Archived" repositories. You have to un-archive them, modify them, and archive them again.
-4. The tool cannot modify "force-push protected" branches. You have to temporarily disable the rule.
-5. If you made a PR to some other repo with a wrong email - you are out of luck. The repo owner would have to merge you modified history.
-6. ALL FORKED Repos will also get out of sync and cannot easily be merged.
-7. If you work in a team, inform your collaborators about these changes, they will need to re-clone the repository after the modification.
-8. make sure to globally set your correct git config email & username from now on.
-
 ## Prerequisites
 
-- read all of the above
-- know what you are doing
 - Docker
 
 ## Usage
 
-- create a [new api token](https://github.com/settings/tokens) with repository & user read access (only used for enumerating your public & private projects)
+- create a [new GitHub api token](https://github.com/settings/tokens) with repository & user read access (used for enumerating and cloning your public & private projects)
   - copy `example.secrets.yaml` to `.secrets.yaml` and add your new token
 - modify `settings.yaml`
-  - your dedicated github-no-reply email address can be found on your profile settings
+  - add GitHub usernames to scrape
 - run it with `docker compose up -d`
